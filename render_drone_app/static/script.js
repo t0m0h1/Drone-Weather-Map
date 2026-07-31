@@ -1,11 +1,14 @@
 // Initialize Map
 const map = L.map('map').setView([54.5, -3.2], 5);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+
+// Base Map Layer (OpenStreetMap)
+const baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap'
 }).addTo(map);
 
 let currentMarker = null;
+let radarLayer = null;
 
 // STATE MANAGEMENT for Instant Unit Toggling
 let currentWeatherData = null;
@@ -28,6 +31,33 @@ const LIMITS = {
     maxKpIndex: 5      
 };
 
+// Load Live RainViewer Radar Overlay
+async function loadWeatherRadar() {
+    try {
+        const response = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+        const data = await response.json();
+        const latestPastPath = data.radar.past[data.radar.past.length - 1].path;
+        
+        radarLayer = L.tileLayer(`https://tilecache.rainviewer.com${latestPastPath}/256/{z}/{x}/{y}/2/1_1.png`, {
+            opacity: 0.6,
+            attribution: '&copy; RainViewer',
+            maxZoom: 19,
+            maxNativeZoom: 7 // FIX: Prevents zoom errors by stretching max level 7 tiles
+        });
+
+        radarLayer.addTo(map);
+        
+        const overlayMaps = {
+            "Live Rain Radar": radarLayer
+        };
+        L.control.layers(null, overlayMaps, { position: 'topright' }).addTo(map);
+    } catch (error) {
+        console.error("Failed to load weather radar:", error);
+    }
+}
+
+loadWeatherRadar();
+
 function getWeatherDescription(code) {
     if (code === 0) return "Clear sky ☀️";
     if (code === 1 || code === 2 || code === 3) return "Partly Cloudy ⛅";
@@ -44,11 +74,10 @@ function getWeatherDescription(code) {
 // EVENT LISTENERS
 // ---------------------------------------------
 
-// Toggle Wind Unit
 document.getElementById('wind-unit-select').addEventListener('change', (e) => {
     currentWindUnit = e.target.value;
     if (currentWeatherData) {
-        renderDashboard(currentWeatherData); // Re-render UI instantly without refetching
+        renderDashboard(currentWeatherData);
     }
 });
 
@@ -102,7 +131,7 @@ document.getElementById('search-input').addEventListener('keypress', function(e)
 });
 
 // ---------------------------------------------
-// DATA FETCHING
+// DATA FETCHING & HELPERS
 // ---------------------------------------------
 
 function showLoadingUI() {
@@ -155,7 +184,6 @@ async function fetchWeather(lat, lon) {
         const sunsetStr = weatherData.daily.sunset[0];
         const sunsetTime = new Date(sunsetStr).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 
-        // Save to global state so we can re-render when units change
         currentWeatherData = {
             windMs: current.wind_speed_10m,
             wind120mMs: current.wind_speed_120m || current.wind_speed_10m,
@@ -193,17 +221,14 @@ function setIndicator(id, status) {
 function renderDashboard(data) {
     const unit = WIND_UNITS[currentWindUnit];
 
-    // Calculate display values based on selected unit multiplier
     const dispWind = (data.windMs * unit.multiplier).toFixed(1);
     const dispWind120m = (data.wind120mMs * unit.multiplier).toFixed(1);
     const dispGusts = (data.gustMs * unit.multiplier).toFixed(1);
 
-    // Update all dynamic unit labels in the DOM
     document.querySelectorAll('.wind-unit-label').forEach(el => {
         el.innerText = unit.label;
     });
 
-    // Populate basic metrics
     document.getElementById('wind').innerText = dispWind;
     document.getElementById('wind-120m').innerText = dispWind120m;
     document.getElementById('gusts').innerText = dispGusts;
@@ -218,7 +243,6 @@ function renderDashboard(data) {
     let hazards = [];
     let isGo = true;
 
-    // Wind Logic (Evaluated in m/s, displayed in selected unit)
     if (data.windMs >= LIMITS.maxWindMs) {
         const limitVal = (LIMITS.maxWindMs * unit.multiplier).toFixed(1);
         hazards.push(`Surface wind (${dispWind} ${unit.label}) exceeds maximum of ${limitVal} ${unit.label}.`);
@@ -238,7 +262,6 @@ function renderDashboard(data) {
         isGo = false; setIndicator('gust-indicator', 'danger');
     } else setIndicator('gust-indicator', 'good');
 
-    // Other Telemetry Logic
     if (data.visKm !== "N/A" && data.visKm <= LIMITS.minVisKm) {
         hazards.push(`Visibility (${data.visKm} km) is below the minimum of ${LIMITS.minVisKm} km.`);
         isGo = false; setIndicator('vis-indicator', 'danger');
@@ -280,7 +303,6 @@ function renderDashboard(data) {
         setIndicator('battery-indicator', 'good');
     }
 
-    // Render Banner
     const banner = document.getElementById('status-banner');
     const hazardContainer = document.getElementById('hazards-container');
     const hazardList = document.getElementById('hazards-list');
@@ -296,7 +318,6 @@ function renderDashboard(data) {
         hazardContainer.classList.remove('hidden');
     }
 
-    // Toggle UI States
     document.getElementById('loading').classList.add('hidden');
     document.getElementById('results').classList.remove('hidden');
 }
