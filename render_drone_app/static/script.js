@@ -62,7 +62,6 @@ function getWeatherDescription(code) {
     return "Unknown";
 }
 
-// Simplified, realistic environment and hazard analysis
 function analyzeTerrain(geoData) {
     if (!geoData || !geoData.class) return { desc: "Open Terrain", hazard: "Maintain visual line of sight and check land access." };
     const c = geoData.class;
@@ -89,6 +88,23 @@ function analyzeTerrain(geoData) {
 document.getElementById('wind-unit-select').addEventListener('change', (e) => {
     currentWindUnit = e.target.value;
     if (currentWeatherData) renderDashboard(currentWeatherData);
+});
+
+// Copy Coordinates Button Handler
+document.getElementById('copy-coords-btn').addEventListener('click', () => {
+    const coordText = document.getElementById('coord-display').innerText;
+    if (coordText && coordText !== "No location selected") {
+        navigator.clipboard.writeText(coordText).then(() => {
+            const btn = document.getElementById('copy-coords-btn');
+            const originalText = btn.innerText;
+            btn.innerText = "Copied!";
+            btn.classList.replace('bg-slate-800', 'bg-emerald-600');
+            setTimeout(() => {
+                btn.innerText = originalText;
+                btn.classList.replace('bg-emerald-600', 'bg-slate-800');
+            }, 2000);
+        });
+    }
 });
 
 map.on('click', function(e) {
@@ -141,7 +157,7 @@ document.getElementById('search-input').addEventListener('keypress', function(e)
 });
 
 // ---------------------------------------------
-// DATA FETCHING 
+// DATA FETCHING & HELPERS
 // ---------------------------------------------
 
 function showLoadingUI() {
@@ -160,6 +176,14 @@ function initiateWeatherFetch(lat, lon) {
     currentMarker = L.marker([lat, lon]).addTo(map);
     map.setView([lat, lon], 12);
     
+    // Update Coordinates Widget Display immediately
+    const formattedCoords = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+    document.getElementById('coord-display').innerText = formattedCoords;
+    const copyBtn = document.getElementById('copy-coords-btn');
+    copyBtn.removeAttribute('disabled');
+
+    setTimeout(() => map.invalidateSize(), 100);
+
     document.getElementById('loading-text').innerText = "Analyzing telemetry data...";
     showLoadingUI();
     fetchWeather(lat, lon);
@@ -375,4 +399,10 @@ function renderDashboard(data) {
 
     document.getElementById('loading').classList.add('hidden');
     document.getElementById('results').classList.remove('hidden');
+    
+    setTimeout(() => map.invalidateSize(), 150);
 }
+
+window.addEventListener('resize', () => {
+    map.invalidateSize();
+});

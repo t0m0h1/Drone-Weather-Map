@@ -35,11 +35,24 @@
             </div>
         </header>
 
-        <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
-            <div class="lg:col-span-2 border border-slate-300 rounded-xl overflow-hidden shadow-sm flex flex-col h-[500px] lg:h-auto">
-                <div id="map" class="flex-grow"></div>
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-8 items-start">
+            <!-- Left Column: Map + Precision Coordinates Widget -->
+            <div class="lg:col-span-2 flex flex-col gap-4 lg:sticky lg:top-8">
+                <div class="border border-slate-300 rounded-xl overflow-hidden shadow-sm h-[420px] lg:h-[480px]">
+                    <div id="map" class="w-full h-full"></div>
+                </div>
+
+                <!-- NEW: Precision Coordinates & Share Widget -->
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">Pinpoint Coordinates</h3>
+                    <div class="flex justify-between items-center bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 gap-2">
+                        <span id="coord-display" class="font-mono text-xs font-bold text-slate-700 truncate">No location selected</span>
+                        <button id="copy-coords-btn" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded text-xs transition-colors disabled:opacity-50 shrink-0" disabled>Copy</button>
+                    </div>
+                </div>
             </div>
 
+            <!-- Telemetry & Results Column -->
             <div class="lg:col-span-3 flex flex-col">
                 <div id="instruction" class="flex-grow flex flex-col items-center justify-center text-slate-400 py-12 bg-slate-50/50 rounded-xl border-2 border-dashed border-slate-200">
                     <svg class="w-20 h-20 mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path></svg>
@@ -63,7 +76,6 @@
                         <ul id="hazards-list" class="list-disc list-inside text-sm text-red-700 space-y-1 font-medium"></ul>
                     </div>
 
-                    <!-- NEW: Flight Zone Ground Assessment -->
                     <div class="mb-6 bg-slate-800 p-5 rounded-xl border border-slate-700 shadow-md text-white flex flex-col md:flex-row justify-between md:items-center gap-4">
                         <div class="w-full md:w-1/3">
                             <h3 class="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1">Flight Zone Assessment</h3>
