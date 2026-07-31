@@ -21,13 +21,18 @@ const WIND_UNITS = {
     'knots': { multiplier: 1.94384, label: 'kt' }
 };
 
-// Base Limits (Always defined in m/s as the source of truth)
+// NEW: More conservative drone flight limits
 const LIMITS = { 
-    maxWindMs: 10, 
-    maxWind120mMs: 13, 
-    maxGustMs: 15,
-    minVisKm: 5, 
+    warnWindMs: 6,     // Amber at 6 m/s (~13.4 mph)
+    maxWindMs: 8,      // Red at 8 m/s (~17.9 mph)
+    warnWind120mMs: 8, // Amber at 8 m/s
+    maxWind120mMs: 10, // Red at 10 m/s
+    warnGustMs: 8,     // Amber at 8 m/s
+    maxGustMs: 10,     // Red at 10 m/s
+    warnVisKm: 8,      // Amber at 8 km
+    minVisKm: 5,       // Red at 5 km
     maxPrecipMm: 0,
+    warnKpIndex: 4,
     maxKpIndex: 5      
 };
 
@@ -42,7 +47,7 @@ async function loadWeatherRadar() {
             opacity: 0.6,
             attribution: '&copy; RainViewer',
             maxZoom: 19,
-            maxNativeZoom: 7 // FIX: Prevents zoom errors by stretching max level 7 tiles
+            maxNativeZoom: 7
         });
 
         radarLayer.addTo(map);
@@ -157,7 +162,7 @@ function initiateWeatherFetch(lat, lon) {
 
 async function fetchWeather(lat, lon) {
     try {
-        const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,wind_speed_120m,wind_gusts_10m,precipitation,visibility,weather_code,cloud_cover&daily=sunrise,sunset&wind_speed_unit=ms&timezone=auto`;
+        const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,wind_speed_120m,wind_gusts_10m,precipitation,visibility,weather_code,cloud_cover&hourly=temperature_2m,wind_speed_10m,wind_speed_120m,wind_gusts_10m,precipitation,visibility,weather_code&daily=sunrise,sunset&wind_speed_unit=ms&timezone=auto&forecast_days=2`;
         const noaaUrl = `https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json`;
 
         const [weatherRes, noaaRes] = await Promise.all([
@@ -194,7 +199,8 @@ async function fetchWeather(lat, lon) {
             code: current.weather_code,
             visKm: visKm,
             kpIndex: kpIndex,
-            sunsetTime: sunsetTime
+            sunsetTime: sunsetTime,
+            hourly: weatherData.hourly 
         };
 
         renderDashboard(currentWeatherData);
@@ -229,6 +235,7 @@ function renderDashboard(data) {
         el.innerText = unit.label;
     });
 
+    // Populate Current Metrics
     document.getElementById('wind').innerText = dispWind;
     document.getElementById('wind-120m').innerText = dispWind120m;
     document.getElementById('gusts').innerText = dispGusts;
@@ -243,29 +250,44 @@ function renderDashboard(data) {
     let hazards = [];
     let isGo = true;
 
+    // UPDATED: Current Hazard Evaluation Logic
     if (data.windMs >= LIMITS.maxWindMs) {
         const limitVal = (LIMITS.maxWindMs * unit.multiplier).toFixed(1);
         hazards.push(`Surface wind (${dispWind} ${unit.label}) exceeds maximum of ${limitVal} ${unit.label}.`);
         isGo = false; setIndicator('wind-indicator', 'danger');
-    } else setIndicator('wind-indicator', 'good');
+    } else if (data.windMs >= LIMITS.warnWindMs) {
+        setIndicator('wind-indicator', 'warning');
+    } else {
+        setIndicator('wind-indicator', 'good');
+    }
 
     if (data.wind120mMs >= LIMITS.maxWind120mMs) {
         hazards.push(`Altitude wind at 120m (${dispWind120m} ${unit.label}) is dangerous.`);
         isGo = false; setIndicator('wind-120m-indicator', 'danger');
-    } else if (data.wind120mMs >= LIMITS.maxWindMs) {
+    } else if (data.wind120mMs >= LIMITS.warnWind120mMs) {
         setIndicator('wind-120m-indicator', 'warning');
-    } else setIndicator('wind-120m-indicator', 'good');
+    } else {
+        setIndicator('wind-120m-indicator', 'good');
+    }
 
     if (data.gustMs >= LIMITS.maxGustMs) {
         const limitVal = (LIMITS.maxGustMs * unit.multiplier).toFixed(1);
         hazards.push(`Wind gusts (${dispGusts} ${unit.label}) exceed limit of ${limitVal} ${unit.label}.`);
         isGo = false; setIndicator('gust-indicator', 'danger');
-    } else setIndicator('gust-indicator', 'good');
+    } else if (data.gustMs >= LIMITS.warnGustMs) {
+        setIndicator('gust-indicator', 'warning');
+    } else {
+        setIndicator('gust-indicator', 'good');
+    }
 
     if (data.visKm !== "N/A" && data.visKm <= LIMITS.minVisKm) {
         hazards.push(`Visibility (${data.visKm} km) is below the minimum of ${LIMITS.minVisKm} km.`);
         isGo = false; setIndicator('vis-indicator', 'danger');
-    } else setIndicator('vis-indicator', 'good');
+    } else if (data.visKm !== "N/A" && data.visKm <= LIMITS.warnVisKm) {
+        setIndicator('vis-indicator', 'warning');
+    } else {
+        setIndicator('vis-indicator', 'good');
+    }
 
     if (data.precipMm > LIMITS.maxPrecipMm) {
         hazards.push(`Active precipitation detected (${data.precipMm} mm/h). Risk of electrical shorting.`);
@@ -280,7 +302,7 @@ function renderDashboard(data) {
     if (data.kpIndex >= LIMITS.maxKpIndex) {
         hazards.push(`Geomagnetic storm active (Kp: ${data.kpIndex}). High risk of GPS loss.`);
         isGo = false; setIndicator('kp-indicator', 'danger');
-    } else if (data.kpIndex >= 4) {
+    } else if (data.kpIndex >= LIMITS.warnKpIndex) {
         setIndicator('kp-indicator', 'warning');
     } else setIndicator('kp-indicator', 'good');
 
@@ -303,6 +325,7 @@ function renderDashboard(data) {
         setIndicator('battery-indicator', 'good');
     }
 
+    // Render Main Banner
     const banner = document.getElementById('status-banner');
     const hazardContainer = document.getElementById('hazards-container');
     const hazardList = document.getElementById('hazards-list');
@@ -316,6 +339,65 @@ function renderDashboard(data) {
         banner.className = "p-5 rounded-xl mb-6 text-center text-2xl font-black text-white shadow-md flex items-center justify-center gap-3 bg-red-600";
         hazardList.innerHTML = hazards.map(h => `<li>${h}</li>`).join('');
         hazardContainer.classList.remove('hidden');
+    }
+
+    // ---------------------------------------------
+    // RENDER 24-HOUR TIMELINE
+    // ---------------------------------------------
+    const timelineContainer = document.getElementById('hourly-timeline');
+    timelineContainer.innerHTML = ''; 
+
+    const nowTimestamp = new Date().getTime();
+    let startIndex = 0;
+    
+    for (let i = 0; i < data.hourly.time.length; i++) {
+        const hourTime = new Date(data.hourly.time[i]).getTime();
+        if (hourTime >= nowTimestamp - 3600000) {
+            startIndex = i;
+            break;
+        }
+    }
+
+    // Loop through the next 24 hours
+    for (let i = startIndex; i < Math.min(startIndex + 24, data.hourly.time.length); i++) {
+        const timeStr = new Date(data.hourly.time[i]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        
+        const hWind = data.hourly.wind_speed_10m[i];
+        const hWind120m = data.hourly.wind_speed_120m[i] || hWind;
+        const hGust = data.hourly.wind_gusts_10m[i];
+        const hPrecip = data.hourly.precipitation[i];
+        const hVis = data.hourly.visibility[i] / 1000;
+        const hTemp = data.hourly.temperature_2m[i];
+        const hCode = data.hourly.weather_code[i];
+
+        // Hourly Hazard Logic evaluation (Using the new tighter max limits)
+        let isHourSafe = true;
+        if (hWind >= LIMITS.maxWindMs) isHourSafe = false;
+        if (hWind120m >= LIMITS.maxWind120mMs) isHourSafe = false;
+        if (hGust >= LIMITS.maxGustMs) isHourSafe = false;
+        if (hVis <= LIMITS.minVisKm) isHourSafe = false;
+        if (hPrecip > LIMITS.maxPrecipMm) isHourSafe = false;
+        if (hCode >= 71) isHourSafe = false;
+        if (hTemp <= 0 || hTemp > 35) isHourSafe = false;
+
+        const displayHWind = (hWind * unit.multiplier).toFixed(1);
+
+        const blockClass = isHourSafe 
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+            : 'bg-red-50 border-red-200 text-red-800';
+            
+        const iconSVG = isHourSafe 
+            ? `<svg class="w-5 h-5 text-emerald-600 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>`
+            : `<svg class="w-5 h-5 text-red-600 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"></path></svg>`;
+
+        timelineContainer.innerHTML += `
+            <div class="flex-none w-24 p-3 rounded-xl border-2 ${blockClass} flex flex-col items-center justify-center snap-start shadow-sm transition-transform hover:scale-105">
+                <span class="text-xs font-bold mb-1 opacity-70">${timeStr}</span>
+                ${iconSVG}
+                <span class="text-lg font-black">${displayHWind}</span>
+                <span class="text-[9px] uppercase font-bold tracking-wider">${unit.label}</span>
+            </div>
+        `;
     }
 
     document.getElementById('loading').classList.add('hidden');
