@@ -8,7 +8,6 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css">
     <style>
-        /* Hide scrollbar for a cleaner timeline look but keep functionality */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
@@ -54,14 +53,27 @@
                 </div>
 
                 <div id="results" class="hidden flex-grow flex flex-col">
-                    <div id="status-banner" class="p-5 rounded-xl mb-6 text-center text-2xl font-black text-white shadow-md flex items-center justify-center gap-3 transition-all"></div>
+                    <div id="status-banner" class="p-5 rounded-xl mb-4 text-center text-2xl font-black text-white shadow-md flex items-center justify-center gap-3 transition-all"></div>
                     
-                    <div id="hazards-container" class="hidden mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
+                    <div id="hazards-container" class="hidden mb-4 p-4 bg-red-50 border border-red-200 rounded-xl">
                         <h4 class="text-red-800 font-bold mb-2 flex items-center gap-2">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                             Flight Hazards Detected:
                         </h4>
                         <ul id="hazards-list" class="list-disc list-inside text-sm text-red-700 space-y-1 font-medium"></ul>
+                    </div>
+
+                    <!-- NEW: Flight Zone Ground Assessment -->
+                    <div class="mb-6 bg-slate-800 p-5 rounded-xl border border-slate-700 shadow-md text-white flex flex-col md:flex-row justify-between md:items-center gap-4">
+                        <div class="w-full md:w-1/3">
+                            <h3 class="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1">Flight Zone Assessment</h3>
+                            <p id="location-name" class="text-lg font-bold text-slate-100 leading-tight">--</p>
+                        </div>
+                        <div class="flex flex-wrap gap-x-6 gap-y-3 text-sm font-semibold text-slate-300">
+                            <p class="flex flex-col"><span class="text-[10px] uppercase text-slate-400">Ground Elevation</span> <span class="text-white font-black text-lg"><span id="elevation">--</span>m <span class="text-xs font-semibold text-slate-400">ASL</span></span></p>
+                            <p class="flex flex-col"><span class="text-[10px] uppercase text-slate-400">Surface Type</span> <span id="terrain-desc" class="text-white font-black text-lg">--</span></p>
+                            <p class="flex flex-col"><span class="text-[10px] uppercase text-slate-400">Ground Hazard</span> <span id="terrain-hazard" class="text-amber-400 font-bold text-sm mt-1">--</span></p>
+                        </div>
                     </div>
                     
                     <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -70,49 +82,41 @@
                             <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider pl-2">Wind (Surface)</h3>
                             <p class="text-2xl font-black mt-1 text-slate-800 pl-2"><span id="wind">--</span><span class="wind-unit-label text-sm text-slate-500 font-semibold ml-1">m/s</span></p>
                         </div>
-                        
                         <div class="kpi-card bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                             <div id="wind-120m-indicator" class="absolute top-0 left-0 w-1 h-full bg-slate-300"></div>
                             <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider pl-2">Wind (120m Alt)</h3>
                             <p class="text-2xl font-black mt-1 text-slate-800 pl-2"><span id="wind-120m">--</span><span class="wind-unit-label text-sm text-slate-500 font-semibold ml-1">m/s</span></p>
                         </div>
-
                         <div class="kpi-card bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                             <div id="gust-indicator" class="absolute top-0 left-0 w-1 h-full bg-slate-300"></div>
                             <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider pl-2">Wind Gusts</h3>
                             <p class="text-2xl font-black mt-1 text-slate-800 pl-2"><span id="gusts">--</span><span class="wind-unit-label text-sm text-slate-500 font-semibold ml-1">m/s</span></p>
                         </div>
-                        
                         <div class="kpi-card bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                             <div id="vis-indicator" class="absolute top-0 left-0 w-1 h-full bg-slate-300"></div>
                             <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider pl-2">Visibility</h3>
                             <p class="text-2xl font-black mt-1 text-slate-800 pl-2"><span id="visibility">--</span><span class="text-sm text-slate-500 font-semibold ml-1">km</span></p>
                         </div>
-                        
                         <div class="kpi-card bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                             <div id="precip-indicator" class="absolute top-0 left-0 w-1 h-full bg-slate-300"></div>
                             <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider pl-2">Precipitation</h3>
                             <p class="text-2xl font-black mt-1 text-slate-800 pl-2"><span id="precip">--</span><span class="text-sm text-slate-500 font-semibold ml-1">mm/h</span></p>
                         </div>
-
                         <div class="kpi-card bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                             <div id="battery-indicator" class="absolute top-0 left-0 w-1 h-full bg-slate-300"></div>
                             <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider pl-2">LiPo Temp Health</h3>
                             <p class="text-lg font-black mt-2 text-slate-800 pl-2 leading-tight" id="battery-status">--</p>
                             <p class="text-[11px] text-slate-400 mt-1 font-semibold pl-2">Temp: <span id="temp">--</span>°C</p>
                         </div>
-
                         <div class="kpi-card bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                             <div id="kp-indicator" class="absolute top-0 left-0 w-1 h-full bg-slate-300"></div>
                             <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider pl-2">GPS Health (Kp)</h3>
                             <p class="text-2xl font-black mt-1 text-slate-800 pl-2" id="kp-index">--</p>
                         </div>
-
                         <div class="kpi-card bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm">
                             <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Civil Twilight (Sunset)</h3>
                             <p class="text-2xl font-black mt-1 text-slate-800" id="sunset-time">--:--</p>
                         </div>
-
                         <div class="kpi-card bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm">
                             <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Conditions</h3>
                             <p id="condition-desc" class="text-lg font-bold mt-1 text-slate-800 leading-tight truncate">--</p>
@@ -120,7 +124,6 @@
                         </div>
                     </div>
 
-                    <!-- NEW: Hourly Mission Timeline -->
                     <div class="mt-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm w-full">
                         <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
