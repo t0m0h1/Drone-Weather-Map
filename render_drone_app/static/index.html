@@ -42,7 +42,7 @@
                     <div id="map" class="w-full h-full"></div>
                 </div>
 
-                <!-- NEW: Precision Coordinates & Share Widget -->
+                <!-- Precision Coordinates & Share Widget -->
                 <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                     <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">Pinpoint Coordinates</h3>
                     <div class="flex justify-between items-center bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 gap-2">
@@ -88,6 +88,7 @@
                         </div>
                     </div>
                     
+                    <!-- KPI Grid -->
                     <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
                         <div class="kpi-card bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
                             <div id="wind-indicator" class="absolute top-0 left-0 w-1 h-full bg-slate-300"></div>
@@ -136,6 +137,17 @@
                         </div>
                     </div>
 
+                    <!-- NEW: Vertical Wind Shear Profile -->
+                    <div class="mt-6 bg-slate-900 p-5 rounded-xl border border-slate-800 shadow-md w-full text-white">
+                        <h3 class="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-4 flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path></svg>
+                            Altitude Wind Profile (Shear & Direction)
+                        </h3>
+                        <div id="wind-profile-container" class="flex flex-col gap-3 relative z-10 w-full">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+
                     <div class="mt-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm w-full">
                         <h3 class="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -148,6 +160,16 @@
                 </div>
             </div>
         </div>
+        
+        <!-- COMPREHENSIVE DATA SOURCE FOOTER -->
+        <footer class="mt-8 pt-4 border-t border-slate-200 text-center text-xs font-medium text-slate-400">
+            Data provided by: 
+            <a href="https://open-meteo.com/" target="_blank" class="hover:text-blue-500 transition-colors">Open-Meteo</a> (Weather), 
+            <a href="https://www.swpc.noaa.gov/" target="_blank" class="hover:text-blue-500 transition-colors">NOAA</a> (Space Weather / Kp Index), 
+            <a href="https://www.openstreetmap.org/copyright" target="_blank" class="hover:text-blue-500 transition-colors">OpenStreetMap / Nominatim</a> (Maps & Geocoding), and 
+            <a href="https://www.rainviewer.com/" target="_blank" class="hover:text-blue-500 transition-colors">RainViewer</a> (Live Radar).
+        </footer>
+
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="script.js"></script>

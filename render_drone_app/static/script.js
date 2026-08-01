@@ -3,7 +3,7 @@ const map = L.map('map').setView([54.5, -3.2], 5);
 
 const baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    attribution: '&copy; OpenStreetMap'
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> | Weather by <a href="https://open-meteo.com/" target="_blank">Open-Meteo</a>'
 }).addTo(map);
 
 let currentMarker = null;
@@ -26,6 +26,13 @@ const LIMITS = {
     maxPrecipMm: 0,
     warnKpIndex: 4, maxKpIndex: 5      
 };
+
+function getCompassDir(deg) {
+    if (deg === null || deg === undefined) return "--";
+    const val = Math.floor((deg / 22.5) + 0.5);
+    const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+    return arr[(val % 16)];
+}
 
 async function loadWeatherRadar() {
     try {
@@ -90,7 +97,6 @@ document.getElementById('wind-unit-select').addEventListener('change', (e) => {
     if (currentWeatherData) renderDashboard(currentWeatherData);
 });
 
-// Copy Coordinates Button Handler
 document.getElementById('copy-coords-btn').addEventListener('click', () => {
     const coordText = document.getElementById('coord-display').innerText;
     if (coordText && coordText !== "No location selected") {
@@ -176,7 +182,6 @@ function initiateWeatherFetch(lat, lon) {
     currentMarker = L.marker([lat, lon]).addTo(map);
     map.setView([lat, lon], 12);
     
-    // Update Coordinates Widget Display immediately
     const formattedCoords = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
     document.getElementById('coord-display').innerText = formattedCoords;
     const copyBtn = document.getElementById('copy-coords-btn');
@@ -191,52 +196,96 @@ function initiateWeatherFetch(lat, lon) {
 
 async function fetchWeather(lat, lon) {
     try {
-        const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&elevation=nan&current=temperature_2m,wind_speed_10m,wind_speed_120m,wind_gusts_10m,precipitation,visibility,weather_code,cloud_cover&hourly=temperature_2m,wind_speed_10m,wind_speed_120m,wind_gusts_10m,precipitation,visibility,weather_code&daily=sunrise,sunset&wind_speed_unit=ms&timezone=auto&forecast_days=2`;
-        const noaaUrl = `https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json`;
-        const geoUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
+        const response = await fetch(`/api/weather?lat=${lat}&lon=${lon}`);
+        const payload = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(payload.error || `Server error: ${response.status}`);
+        }
 
-        const [weatherRes, noaaRes, geoRes] = await Promise.all([
-            fetch(weatherUrl),
-            fetch(noaaUrl),
-            fetch(geoUrl)
-        ]);
-
-        const weatherData = await weatherRes.json();
-        const noaaData = await noaaRes.json();
-        const geoData = await geoRes.json(); 
+        const weatherData = payload.weather;
+        const noaaData = payload.noaa;
+        const geoData = payload.geo;
 
         const current = weatherData.current;
+        if (!current) throw new Error("Backend failed to process current metrics.");
+
+        const nowTimestamp = new Date().getTime();
+        let currentHourIdx = 0;
+        if (weatherData.hourly && weatherData.hourly.time) {
+            for (let i = 0; i < weatherData.hourly.time.length; i++) {
+                if (new Date(weatherData.hourly.time[i]).getTime() >= nowTimestamp - 3600000) { 
+                    currentHourIdx = i; 
+                    break; 
+                }
+            }
+        }
+        
+        const hourly = weatherData.hourly || {};
         
         let visKm = "N/A";
         if (current.visibility !== null && current.visibility !== undefined) {
             visKm = (current.visibility / 1000).toFixed(1);
         }
 
+        // FIXED: Loop backward to find the latest valid Kp index (prevents NaN)
         let kpIndex = 0;
-        if (noaaData && noaaData.length > 1) {
-            const latestKp = noaaData[noaaData.length - 1];
-            kpIndex = parseFloat(latestKp[1]);
+        if (noaaData && Array.isArray(noaaData) && noaaData.length > 1) {
+            for (let i = noaaData.length - 1; i > 0; i--) {
+                const parsedKp = parseFloat(noaaData[i][1]);
+                if (!isNaN(parsedKp)) {
+                    kpIndex = parsedKp;
+                    break;
+                }
+            }
         }
 
-        const sunsetStr = weatherData.daily.sunset[0];
+        const sunsetStr = weatherData.daily && weatherData.daily.sunset ? weatherData.daily.sunset[0] : new Date().toISOString();
         const sunsetTime = new Date(sunsetStr).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 
         let locationName = geoData.display_name ? geoData.display_name.split(',').slice(0, 3).join(',') : "Unknown Coordinate";
         const terrainInfo = analyzeTerrain(geoData);
 
+        // Fetch 120m data to use as the base for our 180m extrapolation
+        const m120_speed = hourly.wind_speed_120m?.[currentHourIdx] ?? current.wind_speed_10m ?? 0;
+        const m120_dir = hourly.wind_direction_120m?.[currentHourIdx] ?? current.wind_direction_10m ?? 0;
+        
+        // Extrapolate 180m wind speed using the meteorological Wind Profile Power Law
+        const m180_speed = m120_speed * Math.pow(180/120, 0.143);
+
         currentWeatherData = {
-            windMs: current.wind_speed_10m,
-            wind120mMs: current.wind_speed_120m || current.wind_speed_10m,
-            gustMs: current.wind_gusts_10m || 0,
-            precipMm: current.precipitation,
-            tempC: current.temperature_2m,
-            clouds: current.cloud_cover,
-            code: current.weather_code,
+            windMs: current.wind_speed_10m ?? 0,
+            wind120mMs: m120_speed,
+            gustMs: current.wind_gusts_10m ?? 0,
+            
+            windProfile: {
+                m180: { speed: m180_speed, dir: m120_dir },
+                m120: { speed: m120_speed, dir: m120_dir },
+                m80:  { speed: hourly.wind_speed_80m?.[currentHourIdx] ?? current.wind_speed_10m ?? 0,  dir: hourly.wind_direction_80m?.[currentHourIdx] ?? current.wind_direction_10m ?? 0 },
+                m10:  { speed: current.wind_speed_10m ?? hourly.wind_speed_10m?.[currentHourIdx] ?? 0, dir: current.wind_direction_10m ?? hourly.wind_direction_10m?.[currentHourIdx] ?? 0 }
+            },
+
+            precipMm: current.precipitation ?? 0,
+            tempC: current.temperature_2m ?? 20,
+            clouds: current.cloud_cover ?? 0,
+            code: current.weather_code ?? 0,
             visKm: visKm,
             kpIndex: kpIndex,
             sunsetTime: sunsetTime,
-            hourly: weatherData.hourly,
-            elevation: weatherData.elevation,
+            
+            // STRICT FALLBACKS: Prevents TypeError crashes in the timeline loop if arrays are missing
+            hourly: {
+                time: hourly.time || [],
+                wind_speed_10m: hourly.wind_speed_10m || [],
+                wind_speed_120m: hourly.wind_speed_120m || [],
+                wind_gusts_10m: hourly.wind_gusts_10m || [],
+                precipitation: hourly.precipitation || [],
+                visibility: hourly.visibility || [],
+                temperature_2m: hourly.temperature_2m || [],
+                weather_code: hourly.weather_code || []
+            },
+            
+            elevation: weatherData.elevation ?? 0,
             locationName: locationName,
             terrainDesc: terrainInfo.desc,
             terrainHazard: terrainInfo.hazard
@@ -245,8 +294,14 @@ async function fetchWeather(lat, lon) {
         renderDashboard(currentWeatherData);
 
     } catch (error) {
-        console.error("Error:", error);
-        document.getElementById('loading').innerHTML = `<p class="text-red-500 font-bold mb-4">Failed to load telemetry.</p><button onclick="hideLoadingUI()" class="px-4 py-2 bg-slate-200 rounded text-slate-800 text-sm font-bold">Back to Map</button>`;
+        console.error("Detailed Telemetry Fetch Error:", error);
+        document.getElementById('loading').innerHTML = `
+            <div class="text-center p-4">
+                <p class="text-red-600 font-bold mb-2">Failed to load telemetry.</p>
+                <p class="text-slate-500 text-sm mb-4 max-w-xs mx-auto overflow-hidden break-words">${error.message}</p>
+                <button onclick="hideLoadingUI()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded text-white text-sm font-bold transition-colors">Back to Map</button>
+            </div>
+        `;
     }
 }
 
@@ -360,42 +415,100 @@ function renderDashboard(data) {
         hazardContainer.classList.remove('hidden');
     }
 
-    // Timeline Rendering
+    // --- Wind Shear Profile Rendering ---
+    const profileContainer = document.getElementById('wind-profile-container');
+    const levels = [
+        { alt: 180, name: '180m', data: data.windProfile.m180, limitMax: LIMITS.maxWind120mMs, limitWarn: LIMITS.warnWind120mMs },
+        { alt: 120, name: '120m', data: data.windProfile.m120, limitMax: LIMITS.maxWind120mMs, limitWarn: LIMITS.warnWind120mMs, isCeiling: true },
+        { alt: 80,  name: '80m',  data: data.windProfile.m80,  limitMax: LIMITS.maxWindMs, limitWarn: LIMITS.warnWindMs },
+        { alt: 10,  name: '10m',  data: data.windProfile.m10,  limitMax: LIMITS.maxWindMs, limitWarn: LIMITS.warnWindMs }
+    ];
+
+    let profileHTML = '';
+    levels.forEach(lvl => {
+        const speedVal = lvl.data.speed;
+        const dispSpeed = (speedVal * unit.multiplier).toFixed(1);
+        const compassText = getCompassDir(lvl.data.dir);
+        
+        let colorClass = 'bg-emerald-500';
+        let textClass = 'text-emerald-400';
+        if (speedVal >= lvl.limitMax) { colorClass = 'bg-red-500'; textClass = 'text-red-400'; }
+        else if (speedVal >= lvl.limitWarn) { colorClass = 'bg-amber-400'; textClass = 'text-amber-400'; }
+
+        const widthPct = Math.min(100, (speedVal / 15) * 100);
+        const arrowRotation = lvl.data.dir + 180;
+
+        profileHTML += `
+            <div class="flex items-center gap-3 py-1">
+                <div class="w-10 text-right text-xs font-bold text-slate-400">${lvl.name}</div>
+                
+                <div class="w-14 flex items-center justify-end gap-1" title="${lvl.data.dir}°">
+                    <span class="text-[9px] font-bold text-slate-400 w-5 text-right">${compassText}</span>
+                    <svg class="w-4 h-4 text-slate-300" style="transform: rotate(${arrowRotation}deg)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+                </div>
+                
+                <div class="flex-grow bg-slate-800 rounded-full h-3 md:h-4 overflow-hidden relative border border-slate-700">
+                    <div class="h-full ${colorClass} transition-all duration-500 rounded-r-full" style="width: ${widthPct}%"></div>
+                </div>
+                
+                <div class="w-16 md:w-20 text-right text-sm font-black ${textClass}">${dispSpeed} <span class="text-[10px] text-slate-500">${unit.label}</span></div>
+            </div>
+        `;
+        
+        if (lvl.isCeiling) {
+            profileHTML += `
+                <div class="w-full border-b-2 border-dashed border-slate-700 my-1 relative">
+                    <span class="absolute right-0 -top-2.5 bg-slate-900 pl-2 text-[8px] uppercase tracking-widest text-slate-500 font-bold">120m Legal Ceiling</span>
+                </div>`;
+        }
+    });
+
+    profileContainer.innerHTML = profileHTML;
+
+    // --- Timeline Rendering ---
     const timelineContainer = document.getElementById('hourly-timeline');
-    timelineContainer.innerHTML = ''; 
     const nowTimestamp = new Date().getTime();
     let startIndex = 0;
     
-    for (let i = 0; i < data.hourly.time.length; i++) {
-        if (new Date(data.hourly.time[i]).getTime() >= nowTimestamp - 3600000) { startIndex = i; break; }
+    if (data.hourly && data.hourly.time && data.hourly.time.length > 0) {
+        for (let i = 0; i < data.hourly.time.length; i++) {
+            if (new Date(data.hourly.time[i]).getTime() >= nowTimestamp - 3600000) { startIndex = i; break; }
+        }
     }
 
-    for (let i = startIndex; i < Math.min(startIndex + 24, data.hourly.time.length); i++) {
-        const timeStr = new Date(data.hourly.time[i]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-        const hWind = data.hourly.wind_speed_10m[i];
-        const hWind120m = data.hourly.wind_speed_120m[i] || hWind;
-        const hGust = data.hourly.wind_gusts_10m[i];
-        const hPrecip = data.hourly.precipitation[i];
-        const hVis = data.hourly.visibility[i] / 1000;
-        const hTemp = data.hourly.temperature_2m[i];
-        const hCode = data.hourly.weather_code[i];
+    const timelineHTML = [];
+    if (data.hourly && data.hourly.time && data.hourly.time.length > 0) {
+        for (let i = startIndex; i < Math.min(startIndex + 24, data.hourly.time.length); i++) {
+            const timeStr = new Date(data.hourly.time[i]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            const hWind = data.hourly.wind_speed_10m[i] ?? 0;
+            const hWind120m = data.hourly.wind_speed_120m[i] ?? hWind;
+            const hGust = data.hourly.wind_gusts_10m[i] ?? 0;
+            const hPrecip = data.hourly.precipitation[i] ?? 0;
+            const hVis = (data.hourly.visibility[i] ?? 10000) / 1000;
+            const hTemp = data.hourly.temperature_2m[i] ?? 20;
+            const hCode = data.hourly.weather_code[i] ?? 0;
 
-        let isHourSafe = true;
-        if (hWind >= LIMITS.maxWindMs || hWind120m >= LIMITS.maxWind120mMs || hGust >= LIMITS.maxGustMs || hVis <= LIMITS.minVisKm || hPrecip > LIMITS.maxPrecipMm || hCode >= 71 || hTemp <= 0 || hTemp > 35) isHourSafe = false;
+            let isHourSafe = true;
+            if (hWind >= LIMITS.maxWindMs || hWind120m >= LIMITS.maxWind120mMs || hGust >= LIMITS.maxGustMs || hVis <= LIMITS.minVisKm || hPrecip > LIMITS.maxPrecipMm || hCode >= 71 || hTemp <= 0 || hTemp > 35) isHourSafe = false;
 
-        const displayHWind = (hWind * unit.multiplier).toFixed(1);
-        const blockClass = isHourSafe ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800';
-        const iconSVG = isHourSafe ? `<svg class="w-5 h-5 text-emerald-600 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>` : `<svg class="w-5 h-5 text-red-600 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"></path></svg>`;
+            const displayHWind = (hWind * unit.multiplier).toFixed(1);
+            const blockClass = isHourSafe ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800';
+            const iconSVG = isHourSafe ? `<svg class="w-5 h-5 text-emerald-600 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>` : `<svg class="w-5 h-5 text-red-600 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"></path></svg>`;
 
-        timelineContainer.innerHTML += `
-            <div class="flex-none w-24 p-3 rounded-xl border-2 ${blockClass} flex flex-col items-center justify-center snap-start shadow-sm transition-transform hover:scale-105">
-                <span class="text-xs font-bold mb-1 opacity-70">${timeStr}</span>
-                ${iconSVG}
-                <span class="text-lg font-black">${displayHWind}</span>
-                <span class="text-[9px] uppercase font-bold tracking-wider">${unit.label}</span>
-            </div>
-        `;
+            timelineHTML.push(`
+                <div class="flex-none w-24 p-3 rounded-xl border-2 ${blockClass} flex flex-col items-center justify-center snap-start shadow-sm transition-transform hover:scale-105">
+                    <span class="text-xs font-bold mb-1 opacity-70">${timeStr}</span>
+                    ${iconSVG}
+                    <span class="text-lg font-black">${displayHWind}</span>
+                    <span class="text-[9px] uppercase font-bold tracking-wider">${unit.label}</span>
+                </div>
+            `);
+        }
+    } else {
+        timelineHTML.push(`<div class="text-slate-500 text-sm p-2">Hourly forecast unavailable.</div>`);
     }
+    
+    timelineContainer.innerHTML = timelineHTML.join('');
 
     document.getElementById('loading').classList.add('hidden');
     document.getElementById('results').classList.remove('hidden');
